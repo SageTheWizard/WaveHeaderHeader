@@ -34,18 +34,18 @@ namespace WAVE
         Header(std::string strFileName)
         {
             std::ifstream oFileHandler;
-            m_oFileSizeOnDisk = std::filesystem::file_size(strFileName);
-            oFileHandler.open(strFileName, std::ios::binary);
+            m_nFileSizeOnDisk = std::filesystem::file_size(strFileName);
+            oFileHandler.open(strFileName, std::ifstream::binary | std::ifstream::ate);
 
             // Validate File is large  enough to atleast contain WAVE Header
-            oFileHandler.seekg(std::ios::end);
-            m_oWaveHeaderUncorrupted = oFileHandler.tellg() >= m_oHeaderSize;
-            if (m_oWaveHeaderUncorrupted)
+            uint32_t nSize = oFileHandler.tellg();
+            m_oWaveHeaderUncorrupted = nSize >= m_cnHeaderSize;
+            if (!m_oWaveHeaderUncorrupted)
             {
                 oFileHandler.close();
                 return;
             }
-            oFileHandler.seekg(std::ios::beg);
+            oFileHandler.seekg(std::ifstream::beg);
 
             // Copy Header into struct
             oFileHandler.read(reinterpret_cast<char *>(&m_sHeader), sizeof(SWAVEHeader));
@@ -58,6 +58,7 @@ namespace WAVE
 
         bool isFileValid()
         {
+            int asdf = sizeof(m_sHeader);
             if (!m_oWaveHeaderUncorrupted)
             {
                 return false;
@@ -65,34 +66,78 @@ namespace WAVE
 
             bool isValid = true;
 
-            // Verify Strings in the header
-            isValid &= strcmp(m_sHeader.RIFF, "RIFF") == 0;
-            isValid &= strcmp(m_sHeader.DATA, "data") == 0;
-            isValid &= strcmp(m_sHeader.FMT, "fmt\0") == 0;
+            // Verify Format vales in the header
+            isValid &= m_sHeader.nFormatLength == 16;
+            isValid &= strncmp(m_sHeader.RIFF, m_csRIFF, 4) == 0;
+            isValid &= strncmp(m_sHeader.DATA, m_csDATA, 4) == 0;
+            isValid &= strncmp(m_sHeader.FMT, m_csFMT, 4) == 0;
+
+            // Verify is PCM
+            // TODO: Make configurable for other types?
+            isValid &= m_sHeader.nFormat == 1;
+
+            // Check File Size is Consistent
+            isValid &= (m_cnHeaderSize + m_sHeader.nFileDataSize == m_nFileSizeOnDisk);
+
+            // Verify Sample Rate / Bits Per Sample / Channel Count is consistent
+            isValid &= (m_sHeader.nSampleRate * m_sHeader.nChannels * m_sHeader.nBytesPerSample) ==
+                       (m_sHeader.nSoundByteSize);
+
+            return isValid;
+        }
+
+        double getRunTime()
+        {
+            return (m_sHeader.nFileDataSize * 1.0) / m_sHeader.nSoundByteSize;
+        }
+
+        int32_t getSampleRate()
+        {
+            return m_sHeader.nSampleRate;
+        }
+
+        int16_t getChannelCount()
+        {
+            return m_sHeader.nChannels;
+        }
+
+        int16_t getBitsPerSample()
+        {
+            return m_sHeader.nBitsPerSample;
+        }
+
+        bool isPCM()
+        {
+            return true; // See Above TODO
         }
 
     private:
         bool m_oWaveHeaderUncorrupted = false;
-        const uint32_t m_oHeaderSize = 44;
+        const uint32_t m_cnHeaderSize = 44;
+        const char m_csRIFF[4] = {'R', 'I', 'F', 'F'};
+        const char m_csWAVE[4] = {'W', 'A', 'V', 'E'};
+        const char m_csFMT[4] = {'f', 'm', 't', ' '};
+        const char m_csDATA[4] = {'d', 'a', 't', 'a'};
 
-        typedef struct SWAVEHeader
+        // https://docs.fileformat.com/audio/wav/
+        struct SWAVEHeader
         {
-            char RIFF[4];
-            uint32_t nFileSize;
-            char WAVE[4];
-            char FMT[4];
-            uint32_t nBitDepth;
-            uint8_t byFormat;
-            uint8_t nChannels;
-            uint32_t nSampleRate;
-            uint32_t nSoundByteSize;
-            uint8_t nBytesPerSample;
-            uint8_t nBitsPerSample;
-            char DATA[4];
-            uint32_t nFileDataSize;
+            char RIFF[4];             // 1  - 4
+            uint32_t nFileSize;       // 5  - 8
+            char WAVE[4];             // 9  - 12
+            char FMT[4];              // 13 - 16
+            uint32_t nFormatLength;   // 17 - 20
+            uint16_t nFormat;         // 21 - 22
+            uint16_t nChannels;       // 23 - 24
+            uint32_t nSampleRate;     // 25 - 28
+            uint32_t nSoundByteSize;  // 29 - 32
+            uint16_t nBytesPerSample; // 33 - 34
+            uint16_t nBitsPerSample;  // 35 - 36
+            char DATA[4];             // 37 - 40
+            uint32_t nFileDataSize;   // 41 - 44
         } __attribute__((__packed__));
 
         SWAVEHeader m_sHeader;
-        uint64_t m_oFileSizeOnDisk;
+        uint64_t m_nFileSizeOnDisk;
     };
 }
